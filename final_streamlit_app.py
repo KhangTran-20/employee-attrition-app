@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -6,68 +5,85 @@ import seaborn as sns
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, precision_score, recall_score, classification_report, confusion_matrix
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score,
+    confusion_matrix, classification_report
+)
+import io
 
-# Set page configuration
-st.set_page_config(page_title="Employee Attrition Prediction", layout="wide")
+st.set_page_config(page_title="Employee Attrition Predictor", layout="wide")
 st.title("📊 Employee Attrition Prediction System")
 
-# Sidebar instructions
-with st.sidebar:
-    st.header("📌 Instructions")
-    st.markdown("1. Upload a CSV file of employee data.")
-    st.markdown("2. Explore the data and visualizations.")
-    st.markdown("3. Select a model and run predictions.")
-    st.markdown("4. View performance metrics.")
+# Help
+with st.expander("ℹ️ Help - How to Use This App", expanded=False):
+    st.markdown("""
+    1. Upload your employee CSV file
+    2. Clean and explore data
+    3. Select a machine learning model
+    4. View predictions, metrics, visualizations
+    5. Download performance report
+    """)
 
-# Upload CSV file
-uploaded_file = st.file_uploader("Upload employee attrition dataset (CSV)", type=["csv"])
+# Upload CSV
+uploaded_file = st.file_uploader("Upload your employee dataset (CSV file)", type="csv")
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
-    st.success("✅ Data successfully uploaded!")
+    st.success("✅ File uploaded successfully!")
 
-    st.subheader("🔍 Raw Data Preview")
+    # Data Preview
+    st.subheader("🔍 Data Preview")
     st.dataframe(df.head())
 
-    st.markdown("### 📌 Data Summary")
-    st.write("**Missing Values:**")
-    st.write(df.isnull().sum())
+    # Dataset Summary
+    st.subheader("📈 Dataset Summary")
     st.write("**Data Types:**")
     st.write(df.dtypes)
-    st.write("**Descriptive Statistics:**")
+
+    st.write("**Missing Values:**")
+    st.write(df.isnull().sum())
+
+    st.write("**Statistical Summary:**")
     st.write(df.describe())
 
-    st.markdown("### 📊 Visualizations")
+    # Visualizations
+    st.subheader("📊 Exploratory Visualizations")
     if df.select_dtypes(include='object').shape[1] > 0:
-        cat_col = st.selectbox("Select a categorical column", df.select_dtypes(include='object').columns)
+        cat_col = st.selectbox("Categorical column to plot", df.select_dtypes(include='object').columns)
         st.bar_chart(df[cat_col].value_counts())
 
-    num_col = st.selectbox("Select a numeric column", df.select_dtypes(include='number').columns)
-    fig, ax = plt.subplots()
-    df[num_col].hist(ax=ax, bins=20)
-    st.pyplot(fig)
+    if df.select_dtypes(include='number').shape[1] > 0:
+        num_col = st.selectbox("Numeric column to plot", df.select_dtypes(include='number').columns)
+        fig, ax = plt.subplots()
+        df[num_col].hist(bins=20, ax=ax)
+        st.pyplot(fig)
 
-    st.subheader("⚙️ Data Cleaning & Encoding")
-    clean_df = df.copy()
-    clean_df.dropna(inplace=True)
-    clean_df.reset_index(drop=True, inplace=True)
+    # Data Cleaning
+    st.subheader("🧹 Data Cleaning")
+    df_clean = df.copy()
+    df_clean.dropna(axis=1, thresh=int(len(df)*0.5), inplace=True)
+    df_clean.fillna(method='ffill', inplace=True)
 
-    categorical_cols = clean_df.select_dtypes(include='object').columns
-    clean_df = pd.get_dummies(clean_df, columns=categorical_cols, drop_first=True)
+    if "Attrition" in df_clean.columns:
+        df_clean["Attrition"] = df_clean["Attrition"].apply(lambda x: 1 if x == "Yes" else 0)
+
+    df_clean = pd.get_dummies(df_clean)
 
     st.success("✅ Data cleaned and encoded.")
-    st.dataframe(clean_df.head())
+    st.dataframe(df_clean.head())
 
-    if "Attrition_Yes" in clean_df.columns:
-        y = clean_df["Attrition_Yes"]
-        X = clean_df.drop("Attrition_Yes", axis=1)
-
-        model_option = st.selectbox("Choose Model", ["Logistic Regression", "Random Forest"])
-
+    # Modeling
+    st.subheader("🤖 Model Training and Evaluation")
+    if "Attrition" not in df_clean.columns:
+        st.error("The dataset must contain an 'Attrition' column.")
+    else:
+        X = df_clean.drop("Attrition", axis=1)
+        y = df_clean["Attrition"]
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-        if model_option == "Logistic Regression":
+        model_type = st.selectbox("Choose model:", ["Logistic Regression", "Random Forest"])
+
+        if model_type == "Logistic Regression":
             model = LogisticRegression(max_iter=1000)
         else:
             model = RandomForestClassifier(n_estimators=100, random_state=42)
@@ -75,20 +91,45 @@ if uploaded_file:
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
 
-        st.subheader(f"📈 Performance Metrics: {model_option}")
+        # Evaluation Metrics
+        st.markdown(f"### 🔍 Performance Metrics: {model_type}")
         st.write(f"**Accuracy:** {accuracy_score(y_test, y_pred):.2f}")
         st.write(f"**Precision:** {precision_score(y_test, y_pred):.2f}")
         st.write(f"**Recall:** {recall_score(y_test, y_pred):.2f}")
 
-        st.markdown("### 📌 Classification Report")
-        st.text(classification_report(y_test, y_pred))
-
-        st.markdown("### 🔁 Confusion Matrix")
+        # Confusion Matrix
+        st.markdown("**Confusion Matrix:**")
         cm = confusion_matrix(y_test, y_pred)
         fig_cm, ax_cm = plt.subplots()
         sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax_cm)
+        ax_cm.set_xlabel("Predicted")
+        ax_cm.set_ylabel("Actual")
         st.pyplot(fig_cm)
-    else:
-        st.error("❌ 'Attrition' column missing or not in expected format. Ensure it's present and labeled as 'Attrition'.")
+
+        # Classification Report
+        report = classification_report(y_test, y_pred, target_names=["Stayed", "Left"])
+        st.subheader("📄 Classification Report")
+        st.text(report)
+
+        # Report Generation and Download
+        st.subheader("📥 Download Report")
+        report_io = io.StringIO()
+        report_io.write("Employee Attrition Prediction Report\n")
+        report_io.write("-----------------------------------\n")
+        report_io.write(f"Model: {model_type}\n")
+        report_io.write(f"Accuracy: {accuracy_score(y_test, y_pred):.2f}\n")
+        report_io.write(f"Precision: {precision_score(y_test, y_pred):.2f}\n")
+        report_io.write(f"Recall: {recall_score(y_test, y_pred):.2f}\n\n")
+        report_io.write("Classification Report:\n")
+        report_io.write(report)
+
+        report_bytes = report_io.getvalue().encode()
+
+        st.download_button(
+            label="📥 Download Report as TXT",
+            data=report_bytes,
+            file_name="attrition_model_report.txt",
+            mime="text/plain"
+        )
 else:
-    st.warning("⬆ Please upload a dataset to begin.")
+    st.info("👈 Please upload a CSV file to begin.")
